@@ -137,6 +137,13 @@ int main( int argc, char *argv[] )
                 printf("use: copyout <inumber> <filename>\n");
             }
             
+        } else if(!strcmp(cmd,"bitmap")) {
+            if(args==1) {
+                print_bitmap();
+            } else {
+                printf("use: bitmap\n");
+            }
+            
         } else if(!strcmp(cmd,"help")) {
             printf("Commands are:\n");
             printf("    format\n");

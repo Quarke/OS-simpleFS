@@ -72,7 +72,7 @@ void disk_write( int blocknum, const char *data )
     
     fseek(diskfile,blocknum*DISK_BLOCK_SIZE,SEEK_SET);
     
-    if(fwrite(data,DISK_BLOCK_SIZE,1,diskfile)==1) {
+    if(fwrite(data, DISK_BLOCK_SIZE, 1, diskfile)==1) {
         nwrites++;
     } else {
         printf("ERROR: couldn't access simulated disk: %s\n",strerror(errno));

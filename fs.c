@@ -70,6 +70,17 @@ int fs_format()
     return 1;
 }
 
+
+void print_bitmap(){
+    if(bitmap != NULL){
+        for(int i = 0; i < INODES_PER_BLOCK; i++){
+            printf(" %d", bitmap[i]);
+        }
+        printf("\n");
+    } else {
+        printf("Bitmap NULL\n");
+    }
+}
 void fs_debug()
 {
     union fs_block block;
@@ -186,13 +197,13 @@ int fs_delete( int inumber )
     // read the inode block and begin checking it for open spaces
     disk_read(inode_block_index, block.data);
     
-    struct fs_inode inode = block.inode[inumber%128];
-    if(inode.isvalid){
+    struct fs_inode inode = block.inode[inumber % 128];
+    if( inode.isvalid ){
         //zero it out and return 1;
         inode = (struct fs_inode){0};
         return 1;
         
-    }else{
+    } else {
         //cannot delete invalid inode, I think...
         printf("Not a valid inode, cannot delete\n");
         return 0;
@@ -201,6 +212,25 @@ int fs_delete( int inumber )
 
 int fs_getsize( int inumber )
 {
+    union fs_block block;
+    disk_read(0, block.data);
+
+    // calculate correct inode block
+    int inode_block_index = (inumber + 128 - 1)/128;
+    
+    if(inode_block_index > block.super.ninodeblocks){
+        printf("Inode number outside limit\n");
+        return 0;
+    }
+    
+    disk_read(inode_block_index, block.data);
+    struct fs_inode inode = block.inode[inumber % 128];
+    
+    if(inode.isvalid){
+        return inode.size;
+    }
+    
+    printf("Invalid inode at inumber\n");
     return -1;
 }
 

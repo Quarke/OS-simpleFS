@@ -2,6 +2,7 @@
 #define FS_H
 
 void fs_debug();
+void print_bitmap();
 int  fs_format();
 int  fs_mount();
 
