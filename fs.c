@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #define FS_MAGIC           0xf0f03410
 #define INODES_PER_BLOCK   128
@@ -126,21 +127,76 @@ int fs_mount()
 
     bitmap = calloc(5, sizeof *bitmap);
     
-    for(int i = 0; i < block.super.nblocks; i++){
-        printf(" %d\n", bitmap[i]);
-    }
-    
-    return 0;
+    return 1;
 }
 
 int fs_create()
 {
+    if(bitmap == NULL){
+        printf("No mounted disk\n");
+        return 0;
+    }
+
+    union fs_block block;
+    disk_read(0, block.data);
+    
+    
+    for(int inode_block_index = 1; inode_block_index < block.super.nblocks; inode_block_index++){
+        // read the inode block and begin checking it for open spaces
+        disk_read(inode_block_index, block.data);
+        
+        // must start at one because of the union
+        struct fs_inode inode;
+        for(int inode_index = 1; inode_index < POINTERS_PER_BLOCK; inode_index++){
+            
+            // read space as an inode, and check valid flag
+            inode = block.inode[inode_index];
+            
+            if(!inode.isvalid){
+                
+                // if the inode is invalid, we can fill the space safely
+                inode.isvalid = true;
+                inode.size = 0;
+                memset(inode.direct, 0, sizeof(inode.direct));
+                inode.indirect = 0;
+                
+                bitmap[inode_block_index] = 1;
+                return inode_index + inode_block_index * 128;
+            }
+        }
+    }
+
+    printf("Could not create inode, bitmaps are full");
     return 0;
 }
 
 int fs_delete( int inumber )
 {
-    return 0;
+    // calculate correct inode block
+    int inode_block_index = (inumber + 128 - 1)/128;
+    
+    union fs_block block;
+    disk_read(0, block.data);
+    
+    if(inode_block_index > block.super.ninodeblocks){
+        printf("Inode number outside limit\n");
+        return 0;
+    }
+    
+    // read the inode block and begin checking it for open spaces
+    disk_read(inode_block_index, block.data);
+    
+    struct fs_inode inode = block.inode[inumber%128];
+    if(inode.isvalid){
+        //zero it out and return 1;
+        inode = (struct fs_inode){0};
+        return 1;
+        
+    }else{
+        //cannot delete invalid inode, I think...
+        printf("Not a valid inode, cannot delete\n");
+        return 0;
+    }
 }
 
 int fs_getsize( int inumber )
