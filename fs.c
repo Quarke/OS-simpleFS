@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <math.h>
+
 
 #define FS_MAGIC           0xf0f03410
 #define INODES_PER_BLOCK   128
@@ -15,6 +17,7 @@
 #define POINTERS_PER_BLOCK 1024
 
 int * bitmap = NULL;
+int bitmap_size;
 
 struct fs_superblock {
     int magic;
@@ -39,13 +42,12 @@ union fs_block {
 
 int fs_format()
 {
-    
     union fs_block block;
     
-    if(disk_size() < 3){
-        printf("Disk to small\n");
+    if(disk_size() < 3) {
+        printf("Disk to small, does not meet minimum node size\n");
         return 0;
-    }else if(bitmap != NULL){
+    } else if(bitmap != NULL) {
         printf("Cannot format mounted image\n");
         return 0;
     }
@@ -73,7 +75,7 @@ int fs_format()
 
 void print_bitmap(){
     if(bitmap != NULL){
-        for(int i = 0; i < INODES_PER_BLOCK; i++){
+        for(int i = 0; i < bitmap_size; i++){
             printf(" %d", bitmap[i]);
         }
         printf("\n");
@@ -81,6 +83,7 @@ void print_bitmap(){
         printf("Bitmap NULL\n");
     }
 }
+
 void fs_debug()
 {
     union fs_block block;
@@ -136,7 +139,41 @@ int fs_mount()
     union fs_block block;
     disk_read(0, block.data);
 
-    bitmap = calloc(5, sizeof *bitmap);
+    bitmap = calloc(block.super.nblocks, sizeof(int));
+    bitmap_size = block.super.nblocks;
+    
+    
+    //parse the file system to correctly set the bitmap for the given file system
+    union fs_block inode_block;
+    struct fs_inode inode;
+    for(int i = 1; i < block.super.ninodeblocks; i++){
+        
+        disk_read(i, inode_block.data);
+        
+        for (int i_node = 0; i_node < INODES_PER_BLOCK; i_node++) {
+            
+            inode = inode_block.inode[i_node];
+            
+            if(inode.isvalid){
+                bitmap[i] = 1;
+                for (int d_blocks = 0; d_blocks * 4096 < inode.size && d_blocks < 5; d_blocks++) {
+                    bitmap[inode.direct[d_blocks]] = 1;
+                }
+                
+                if(inode.size > 5 * 4096){
+                    
+                    bitmap[inode.indirect] = 1;
+                    
+                    union fs_block temp_block;
+                    disk_read(inode.indirect, temp_block.data);
+                    
+                    for( int indirect_block = 0; indirect_block < (double)inode.size/4096 - 5; indirect_block++){
+                        bitmap[temp_block.pointers[indirect_block]] = 1;
+                    }
+                }
+            }
+        }
+    }
     
     return 1;
 }
@@ -236,6 +273,68 @@ int fs_getsize( int inumber )
 
 int fs_read( int inumber, char *data, int length, int offset )
 {
+    memset(data, 0, length);
+    union fs_block block;
+    disk_read(0, block.data);
+    if( inumber == 0 || inumber > block.super.ninodes ){
+        printf("Cannot read; invalid inumber\n");
+        return 0;
+    }
+
+    // ok I guess were reading now
+    int total_bytes_read = 0;
+    int inode_block_index = (inumber + 128 - 1)/128;
+    
+    // read the inode block
+    disk_read(inode_block_index, block.data);
+    
+    // fetch actual inode
+    struct fs_inode inode = block.inode[inumber % 128];
+    if( !inode.isvalid || inode.size == 0 ) {
+        printf("Invalid inode, cannot read\n");
+    } else {
+        if(offset >= inode.size) return 0;
+        
+        // figure out where the **** to start reading
+        // parse through each from offset to length or offset up to size, swapping in and out of the blocks necessary
+        int direct_index = (int) floor(offset / 4096);
+        union fs_block temp_block;
+        
+        int upper_limit = length;
+        if(inode.size < length + offset) upper_limit = inode.size - offset;
+        
+        while(direct_index < 5 && total_bytes_read < upper_limit){
+
+            int chunk = 4096;
+            if(chunk + total_bytes_read > upper_limit) chunk = upper_limit - total_bytes_read;
+            
+            disk_read(inode.direct[direct_index], temp_block.data);
+            
+            strncat(data, temp_block.data, chunk);
+            total_bytes_read += chunk;
+            direct_index++;
+        }
+        
+        if(total_bytes_read < upper_limit){
+
+            //indirect block time
+            union fs_block ind_block;
+            disk_read(inode.indirect, ind_block.data);
+            
+            for( int indirect_block = 0; indirect_block < (double)inode.size/4096 - 5 && total_bytes_read < upper_limit; indirect_block++){
+
+                disk_read(ind_block.pointers[indirect_block], temp_block.data);
+                
+                int chunk = 4096;
+                if(chunk + total_bytes_read > upper_limit) chunk = upper_limit - total_bytes_read;
+                strncat(data, temp_block.data, chunk);
+                
+                total_bytes_read += chunk;
+            }
+        }
+        return total_bytes_read;
+    }
+    
     return 0;
 }
 

@@ -228,7 +228,7 @@ static int do_copyout( int inumber, const char *filename )
         offset += result;
     }
     
-    printf("%d bytes copied\n",offset);
+    printf("\n%d bytes copied\n",offset);
     
     fclose(file);
     return 1;
