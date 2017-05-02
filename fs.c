@@ -40,6 +40,28 @@ union fs_block {
     char data[DISK_BLOCK_SIZE];
 };
 
+int get_new_datablock(){
+    if(bitmap == NULL) {
+        printf("No disk mounted, please mount first\n");
+        return -1;
+    }
+
+    union fs_block block;
+    disk_read(0, block.data);
+    
+    //start at the first datablock instance
+    for(int i = block.super.ninodeblocks + 1; i < bitmap_size; i++){
+        if(bitmap[i] == 0){
+            //zero it out
+            memset(&bitmap[i], 0 , sizeof(bitmap[0]));
+            return i;
+        }
+    }
+    
+    printf("No more room left\n");
+    return -1;
+}
+
 int fs_format()
 {
     union fs_block block;
@@ -321,7 +343,7 @@ int fs_read( int inumber, char *data, int length, int offset )
             union fs_block ind_block;
             disk_read(inode.indirect, ind_block.data);
             
-            for( int indirect_block = 0; indirect_block < (double)inode.size/4096 - 5 && total_bytes_read < upper_limit; indirect_block++){
+            for( int indirect_block = 0; indirect_block < (double) inode.size/4096 - 5 && total_bytes_read < upper_limit; indirect_block++){
 
                 disk_read(ind_block.pointers[indirect_block], temp_block.data);
                 
@@ -340,5 +362,92 @@ int fs_read( int inumber, char *data, int length, int offset )
 
 int fs_write( int inumber, const char *data, int length, int offset )
 {
+    union fs_block block;
+    disk_read(0, block.data);
+    if( inumber == 0 || inumber > block.super.ninodes ){
+        printf("Cannot read; invalid inumber\n");
+        return 0;
+    }
+    
+    // ok I guess were reading now
+    int total_bytes_wrote = 0;
+    int inode_block_index = (inumber + 128 - 1)/128;
+    
+    // read the inode block
+    disk_read(inode_block_index, block.data);
+    
+    // fetch actual inode
+    struct fs_inode inode = block.inode[inumber % 128];
+    if( !inode.isvalid || inode.size == 0 ) {
+        printf("Invalid inode, cannot read\n");
+    } else {
+
+        // figure out where the **** to start writing
+        // parse through each from offset to length or offset up to size, swapping in and out of the blocks necessary
+        int direct_index = (int) floor(offset / 4096);
+        union fs_block temp_block;
+        
+        while (direct_index < 5 && total_bytes_wrote < length) {
+            if(inode.direct[direct_index] == 0){
+                int index = get_new_datablock();
+                if(index == -1){
+                    printf("Not enough space left, cannot write");
+                    return -1;
+                }
+                inode.direct[direct_index] = index;
+            }
+            
+            int chunk = 4096;
+            if(chunk + total_bytes_wrote > length) chunk = length - total_bytes_wrote;
+            
+            strncpy(temp_block.data, data, chunk);
+            data += chunk;
+            
+            disk_write(inode.direct[direct_index], temp_block.data);
+
+            total_bytes_wrote += chunk;
+            direct_index++;
+        }
+        
+        if(total_bytes_wrote < length){
+            
+            //indirect block time
+            union fs_block ind_block;
+            
+            if(inode.indirect == 0) {
+                int index = get_new_datablock();
+                if(index == -1) {
+                    printf("Not enough space left, cannot write");
+                    return -1;
+                }
+                inode.indirect = index;
+            }
+
+            disk_read(inode.indirect, ind_block.data);
+            
+            for( int indirect_block = 0; total_bytes_wrote < length; indirect_block++){
+                if(ind_block.pointers[indirect_block] == 0){
+                    int index = get_new_datablock();
+                    if(index == -1) {
+                        printf("Not enough space left, cannot write");
+                        return -1;
+                    }
+                    inode.direct[direct_index] = index;
+                }
+                
+                int chunk = 4096;
+                if(chunk + total_bytes_wrote > length) chunk = length - total_bytes_wrote;
+                
+                strncpy(temp_block.data, data, chunk);
+                data += chunk;
+                
+                disk_write(inode.direct[direct_index], temp_block.data);
+                
+                total_bytes_wrote += chunk;
+            }
+        }
+        return total_bytes_wrote;
+    }
+    
     return 0;
 }
