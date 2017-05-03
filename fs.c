@@ -217,12 +217,13 @@ int fs_create()
         
         // must start at one because of the union
         struct fs_inode inode;
-        for(int inode_index = 1; inode_index < POINTERS_PER_BLOCK; inode_index++){
+        for(int inode_index = 0; inode_index < POINTERS_PER_BLOCK; inode_index++){
+            if(inode_index == 0 && inode_block_index == 1) inode_index = 1;
             
             // read space as an inode, and check valid flag
             inode = block.inode[inode_index];
             
-            if(!inode.isvalid){
+            if(inode.isvalid == 0){
                 
                 // if the inode is invalid, we can fill the space safely
                 inode.isvalid = true;
@@ -231,12 +232,14 @@ int fs_create()
                 inode.indirect = 0;
                 
                 bitmap[inode_block_index] = 1;
-                return inode_index + inode_block_index * 128;
+                block.inode[inode_index] = inode;
+                disk_write(inode_block_index, block.data);
+                return inode_index + (inode_block_index-1) * 128;
             }
         }
     }
 
-    printf("Could not create inode, bitmaps are full");
+    printf("Could not create inode, inode blocks are full");
     return 0;
 }
 
@@ -260,6 +263,8 @@ int fs_delete( int inumber )
     if( inode.isvalid ){
         //zero it out and return 1;
         inode = (struct fs_inode){0};
+        block.inode[inumber % 128] = inode;
+        disk_write(inode_block_index, block.data);
         return 1;
         
     } else {
@@ -365,7 +370,7 @@ int fs_write( int inumber, const char *data, int length, int offset )
     union fs_block block;
     disk_read(0, block.data);
     if( inumber == 0 || inumber > block.super.ninodes ){
-        printf("Cannot read; invalid inumber\n");
+        printf("Cannot write; invalid inumber\n");
         return 0;
     }
     
@@ -378,8 +383,8 @@ int fs_write( int inumber, const char *data, int length, int offset )
     
     // fetch actual inode
     struct fs_inode inode = block.inode[inumber % 128];
-    if( !inode.isvalid || inode.size == 0 ) {
-        printf("Invalid inode, cannot read\n");
+    if( !inode.isvalid ) {
+        printf("Invalid inode, cannot write\n");
     } else {
 
         // figure out where the **** to start writing
@@ -395,6 +400,7 @@ int fs_write( int inumber, const char *data, int length, int offset )
                     return -1;
                 }
                 inode.direct[direct_index] = index;
+                bitmap[index] = 1;
             }
             
             int chunk = 4096;
@@ -404,6 +410,7 @@ int fs_write( int inumber, const char *data, int length, int offset )
             data += chunk;
             
             disk_write(inode.direct[direct_index], temp_block.data);
+            inode.size += chunk;
 
             total_bytes_wrote += chunk;
             direct_index++;
@@ -421,6 +428,7 @@ int fs_write( int inumber, const char *data, int length, int offset )
                     return -1;
                 }
                 inode.indirect = index;
+                bitmap[index] = 1;
             }
 
             disk_read(inode.indirect, ind_block.data);
@@ -442,10 +450,13 @@ int fs_write( int inumber, const char *data, int length, int offset )
                 data += chunk;
                 
                 disk_write(inode.direct[direct_index], temp_block.data);
+                inode.size += chunk;
                 
                 total_bytes_wrote += chunk;
             }
         }
+        block.inode[inumber % 128] = inode;
+        disk_write(inode_block_index, block.data);
         return total_bytes_wrote;
     }
     

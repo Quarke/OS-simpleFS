@@ -149,6 +149,7 @@ int main( int argc, char *argv[] )
             printf("    format\n");
             printf("    mount\n");
             printf("    debug\n");
+            printf("    bitmap\n");
             printf("    create\n");
             printf("    delete  <inode>\n");
             printf("    cat     <inode>\n");
