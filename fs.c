@@ -113,6 +113,12 @@ void fs_debug()
     disk_read(0, block.data);
     
     printf("superblock:\n");
+    if (! (block.super.magic == FS_MAGIC) )
+    {
+      printf("Cannot understand file system\n");
+      return;
+    }
+    printf("    magic number is valid\n");
     printf("    %d blocks\n", block.super.nblocks);
     printf("    %d inode blocks\n", block.super.ninodeblocks);
     printf("    %d inodes\n", block.super.ninodes);
