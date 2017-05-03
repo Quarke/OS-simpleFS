@@ -9,3 +9,5 @@ Notably, we do not check ahead of time to see if there is enough room for a file
          we do not automatically mount a preloaded disk, so ./simplefs image.20 20 is allowed to be formatted.
 
          we did not recover from terminations halfway thorugh writing as that functionality was below the fs level.
+
+Oh, and we added a command "bitmap" to the shell to print out the bitmap
